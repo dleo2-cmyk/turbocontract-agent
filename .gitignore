@@ -1,0 +1,21 @@
+# Секреты — НИКОГДА не заливать на GitHub
+.env
+.streamlit/secrets.toml
+
+# Результаты анализа (временные файлы)
+analysis_result.json
+feedback_library.json
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+
+# Excel результаты
+*.xlsx
+
+# Claude
+.claude/
+
+# Временные файлы
+*.tmp
