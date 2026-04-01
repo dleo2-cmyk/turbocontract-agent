@@ -538,6 +538,76 @@ def count_variables_deterministic(
 
 
 # ─────────────────────────────────────────────
+# RAG — поиск похожего документа из базы примеров
+# ─────────────────────────────────────────────
+
+def find_rag_example(doc_text: str, doc_name: str) -> Optional[dict]:
+    """
+    Найти наиболее похожий пример из rag_full.json по ключевым словам.
+    Возвращает dict с текстом, аннотацией и метриками или None.
+    """
+    rag_path = Path(__file__).parent / "rag_full.json"
+    if not rag_path.exists():
+        return None
+    try:
+        examples = json.loads(rag_path.read_text(encoding="utf-8"))
+    except Exception:
+        return None
+
+    combined = (doc_text[:3000] + " " + doc_name).lower()
+    words = set(re.findall(r'\b\w{4,}\b', combined))
+
+    best_score = 0
+    best_example = None
+    for ex in examples:
+        kw = set(k.lower() for k in ex.get("keywords", []))
+        score = len(words & kw)
+        if score > best_score:
+            best_score = score
+            best_example = ex
+
+    return best_example if best_score >= 2 else None
+
+
+def build_rag_few_shot(rag: dict) -> list[dict]:
+    """
+    Сформировать пару (user, assistant) из RAG-примера для вставки в few-shot.
+    Использует реальный текст документа + полную аннотацию с детализацией.
+    """
+    excerpt = rag.get("text_excerpt", "")[:3000]
+    annotation = rag.get("annotation", "")
+
+    user_msg = (
+        f"Проанализируй документ:\n"
+        f"--- ДОКУМЕНТ: {rag['doc_name']} ---\n"
+        f"{excerpt}\n"
+        f"--- КОНЕЦ ---\n"
+        f"Тип документа: {rag['doc_type']}."
+    )
+
+    # Формируем детальный JSON-ответ из аннотации
+    assistant_json = json.dumps({
+        "variables": rag["variables"],
+        "variative_blocks": rag["variative_blocks"],
+        "calculated_fields": rag["calculated_fields"],
+        "tables": rag["tables"],
+        "complexity": rag["complexity"],
+        "description": f"{rag['doc_type']}. {annotation[:300]}",
+        "confidence": 1.0,
+        "notes": annotation,
+        "found_variables": [],
+        "found_blocks": [],
+        "found_tables": [],
+        "found_calculated": [],
+    }, ensure_ascii=False, indent=2)
+
+    return [
+        {"role": "user", "content": user_msg},
+        {"role": "assistant", "content": assistant_json},
+    ]
+
+
+# ─────────────────────────────────────────────
 # STEP 1c — Deterministic variative block counting
 # ─────────────────────────────────────────────
 
@@ -1330,23 +1400,21 @@ def build_analysis_prompt(
     return "\n".join(lines)
 
 
-def call_llm(prompt: str, client: OpenAI) -> dict:
+def call_llm(prompt: str, client: OpenAI, rag_pair: Optional[list] = None) -> dict:
     """Call LLM via OpenRouter (OpenAI-compatible) and return parsed JSON."""
-    # Build messages: system + few-shot pairs + current prompt.
+    # Build messages: system + RAG pair (если найден) + few-shot pairs + current prompt.
     # Token budget: GPT-4o limit 128K tokens. Russian text ≈ 1 token per 1.5 chars.
     # Reserve 1024 for output + ~5% overhead → input budget ≈ 126K tokens ≈ 189K chars.
     CHAR_BUDGET = 180_000   # conservative chars budget for input
 
     sys_chars = len(FEW_SHOT_SYSTEM)
     doc_chars = len(prompt)
-    overhead = sys_chars + doc_chars + 200   # 200 = role labels etc.
+    rag_chars = sum(len(m["content"]) for m in rag_pair) if rag_pair else 0
+    overhead = sys_chars + doc_chars + rag_chars + 200
 
     # Build few-shot list: keep as many pairs as budget allows.
-    # Pairs come in (user, assistant) pairs — drop from the BACK first
-    # (least important: code examples come last, real labeled docs come first).
     selected_examples: list[dict] = []
     budget_left = CHAR_BUDGET - overhead
-    # Walk pairs front-to-back, include if they fit
     pairs = [FEW_SHOT_EXAMPLES[i:i+2] for i in range(0, len(FEW_SHOT_EXAMPLES) - 1, 2)]
     for pair in pairs:
         pair_chars = sum(len(m["content"]) for m in pair)
@@ -1354,13 +1422,16 @@ def call_llm(prompt: str, client: OpenAI) -> dict:
             selected_examples += pair
             budget_left -= pair_chars
         else:
-            break   # rest won't fit; labeled docs (most important) already included
+            break
 
     if len(selected_examples) < len(FEW_SHOT_EXAMPLES):
         dropped = (len(FEW_SHOT_EXAMPLES) - len(selected_examples)) // 2
         print(f"    [INFO] Prompt budget: dropped {dropped} few-shot example(s) to fit context window.")
 
     messages = [{"role": "system", "content": FEW_SHOT_SYSTEM}]
+    # RAG-пример идёт ПЕРВЫМ — самый релевантный образец для текущего документа
+    if rag_pair:
+        messages += rag_pair
     messages += selected_examples
     messages += [{"role": "user", "content": prompt}]
 
@@ -1607,8 +1678,18 @@ def analyse_group(
             python_block_count=py_block_count,
             total_appendices=total_file_appendices,
         )
+        # RAG: ищем похожий документ из базы размеченных примеров
+        doc_text_for_rag = "\n".join(rep_doc.paragraphs[:50])
+        rag_match = find_rag_example(doc_text_for_rag, rep_doc.name)
+        rag_pair = build_rag_few_shot(rag_match) if rag_match else None
+        if rag_match:
+            print(f"    RAG: найден похожий пример → «{rag_match['doc_name']}» "
+                  f"(vars={rag_match['variables']}, blocks={rag_match['variative_blocks']})")
+        else:
+            print(f"    RAG: похожий пример не найден")
+
         print(f"    Calling Claude... (prompt ≈ {len(prompt)} chars)")
-        llm_result = call_llm(prompt, client)
+        llm_result = call_llm(prompt, client, rag_pair=rag_pair)
 
     if "error" in llm_result:
         print(f"    [WARN] LLM error: {llm_result['error']}")
