@@ -1700,16 +1700,12 @@ def analyse_group(
         confidence = llm_result.get("confidence", 0.5)
         llm_vars_raw = llm_result.get("variables", 0)
 
-        # Clamp переменных: не применяем если RAG нашёл похожий документ с высоким числом переменных
-        rag_vars = rag_match.get("variables", 0) if rag_match else 0
-        clamp_disabled = rag_vars >= 30  # RAG говорит что таких документов много — доверяем LLM
-        if not clamp_disabled and py_var_count > 0 and py_var_count <= 30 and llm_vars_raw > py_var_count + 2:
+        # Clamp переменных: py_dedup + 2 как мягкий потолок
+        if py_var_count > 0 and py_var_count <= 30 and llm_vars_raw > py_var_count + 2:
             final_vars = py_var_count + 2
             print(f"    [CLAMP] vars: {llm_vars_raw} → {final_vars} (py_dedup={py_var_count}, soft-cap=py+2)")
         else:
             final_vars = llm_vars_raw
-            if clamp_disabled:
-                print(f"    [CLAMP disabled] RAG vars={rag_vars} ≥ 30 → доверяем LLM: {llm_vars_raw}")
         llm_result["variables"] = final_vars
 
         py_tables = rep_doc.content_tables_count
@@ -1743,8 +1739,10 @@ def analyse_group(
     found_calc_list = llm_result.get("found_calculated", [])
     found_tables_list = llm_result.get("found_tables", [])
 
-    # Если LLM вернул перечень — берём длину списка как финальное число (исключает рассинхрон)
-    final_vars = len(found_vars_list) if found_vars_list else llm_result.get("variables", 0)
+    # Если LLM вернул перечень — берём длину списка, но не превышаем уже зажатое значение
+    clamped_vars = llm_result.get("variables", 0)
+    raw_list_vars = len(found_vars_list) if found_vars_list else clamped_vars
+    final_vars = min(raw_list_vars, clamped_vars) if clamped_vars > 0 else raw_list_vars
     final_blocks = len(found_blocks_list) if found_blocks_list else llm_result.get("variative_blocks", 0)
     final_calc = len(found_calc_list) if found_calc_list else llm_result.get("calculated_fields", 0)
     if final_vars > 60 or final_blocks > 35 or final_calc > 0:
