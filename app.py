@@ -111,10 +111,10 @@ if run_btn and uploaded_files:
 
         # ── Метрики ─────────────────────────────────────────────────────────
         col1, col2, col3, col4, col5, col6 = st.columns(6)
-        col1.metric("Переменных", res.variables)
-        col2.metric("Вариативных блоков", res.variative_blocks)
-        col3.metric("Расчётных полей", res.calculated_fields)
-        col4.metric("Таблиц", res.tables)
+        col1.metric("Переменных", len(res.found_variables) if res.found_variables else res.variables)
+        col2.metric("Вариативных блоков", len(res.found_blocks) if res.found_blocks else res.variative_blocks)
+        col3.metric("Расчётных полей", len(res.found_calculated) if res.found_calculated else res.calculated_fields)
+        col4.metric("Таблиц", len(res.found_tables) if res.found_tables else res.tables)
         col5.metric("Приложений", res.appendices)
         col6.metric("Страниц", res.pages)
 
