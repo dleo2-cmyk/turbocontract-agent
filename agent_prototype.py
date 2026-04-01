@@ -1655,9 +1655,15 @@ def analyse_group(
               f"variative_blocks={llm_result.get('variative_blocks')}, "
               f"complexity={llm_result.get('complexity')}")
 
-    final_vars = llm_result.get("variables", 0)
-    final_blocks = llm_result.get("variative_blocks", 0)
-    final_calc = llm_result.get("calculated_fields", 0)
+    found_vars_list = llm_result.get("found_variables", [])
+    found_blocks_list = llm_result.get("found_blocks", [])
+    found_calc_list = llm_result.get("found_calculated", [])
+    found_tables_list = llm_result.get("found_tables", [])
+
+    # Если LLM вернул перечень — берём длину списка как финальное число (исключает рассинхрон)
+    final_vars = len(found_vars_list) if found_vars_list else llm_result.get("variables", 0)
+    final_blocks = len(found_blocks_list) if found_blocks_list else llm_result.get("variative_blocks", 0)
+    final_calc = len(found_calc_list) if found_calc_list else llm_result.get("calculated_fields", 0)
     if final_vars > 60 or final_blocks > 35 or final_calc > 0:
         final_complexity = "Высокая"
     elif final_vars >= 30 or final_blocks >= 10:
@@ -1683,10 +1689,10 @@ def analyse_group(
         description=llm_result.get("description", ""),
         confidence=confidence,
         raw_llm=llm_result,
-        found_variables=llm_result.get("found_variables", []),
-        found_blocks=llm_result.get("found_blocks", []),
-        found_tables=llm_result.get("found_tables", []),
-        found_calculated=llm_result.get("found_calculated", []),
+        found_variables=found_vars_list,
+        found_blocks=found_blocks_list,
+        found_tables=found_tables_list,
+        found_calculated=found_calc_list,
     )
 
 
