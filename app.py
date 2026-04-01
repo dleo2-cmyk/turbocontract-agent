@@ -3,6 +3,8 @@
 TurboContract — Streamlit веб-интерфейс
 """
 
+import contextlib
+import io
 import os
 import sys
 import tempfile
@@ -91,7 +93,9 @@ if run_btn and uploaded_files:
         all_results = []
         progress = st.progress(0, text="Анализируем с помощью LLM...")
         for i, g in enumerate(groups):
-            result = analyse_group(g, client)
+            _buf = io.StringIO()
+            with contextlib.redirect_stdout(_buf), contextlib.redirect_stderr(_buf):
+                result = analyse_group(g, client)
             if result:
                 all_results.append(result)
             progress.progress((i + 1) / len(groups), text=f"Обработано {i+1} из {len(groups)}")
