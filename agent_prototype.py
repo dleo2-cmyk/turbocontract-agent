@@ -1659,6 +1659,8 @@ def analyse_group(
     if debug:
         print("\n".join(block_debug_lines[:40]))
 
+    rag_match: Optional[dict] = None  # будет заполнен в else-ветке
+
     if dry_run:
         llm_result = {
             "variables": py_var_count if py_var_count > 0 else 15,
@@ -1698,11 +1700,16 @@ def analyse_group(
         confidence = llm_result.get("confidence", 0.5)
         llm_vars_raw = llm_result.get("variables", 0)
 
-        if py_var_count > 0 and py_var_count <= 30 and llm_vars_raw > py_var_count + 2:
+        # Clamp переменных: не применяем если RAG нашёл похожий документ с высоким числом переменных
+        rag_vars = rag_match.get("variables", 0) if rag_match else 0
+        clamp_disabled = rag_vars >= 30  # RAG говорит что таких документов много — доверяем LLM
+        if not clamp_disabled and py_var_count > 0 and py_var_count <= 30 and llm_vars_raw > py_var_count + 2:
             final_vars = py_var_count + 2
             print(f"    [CLAMP] vars: {llm_vars_raw} → {final_vars} (py_dedup={py_var_count}, soft-cap=py+2)")
         else:
             final_vars = llm_vars_raw
+            if clamp_disabled:
+                print(f"    [CLAMP disabled] RAG vars={rag_vars} ≥ 30 → доверяем LLM: {llm_vars_raw}")
         llm_result["variables"] = final_vars
 
         py_tables = rep_doc.content_tables_count
