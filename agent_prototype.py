@@ -41,12 +41,6 @@ from docx import Document
 from docx.table import Table
 import openpyxl
 
-# ─────────────────────────────────────────────
-# Fix Windows console encoding
-# ─────────────────────────────────────────────
-if sys.platform == "win32":
-    sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding="utf-8", errors="replace")
-    sys.stderr = io.TextIOWrapper(sys.stderr.buffer, encoding="utf-8", errors="replace")
 
 # ─────────────────────────────────────────────
 # Constants
@@ -1972,4 +1966,8 @@ def main():
 
 
 if __name__ == "__main__":
+    # Fix Windows console encoding only when running from command line
+    if sys.platform == "win32":
+        sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding="utf-8", errors="replace")
+        sys.stderr = io.TextIOWrapper(sys.stderr.buffer, encoding="utf-8", errors="replace")
     main()
